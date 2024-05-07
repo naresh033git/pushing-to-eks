@@ -1,35 +1,28 @@
 name: Deploy to Amazon ECS
-
 on:
   push:
     branches:
       - main
-
 env:
-  AWS_REGION: us-east-1
-  ECR_REPOSITORY: ecrfordeploy    
-
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: econtainer1    
 jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
     environment: development
-
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@0e613a0980cbf65ed5b322eb7a1e075d28913a83
+        uses:  aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@62f4f872db3836360b72999f4b87f1ff13310f3a
-
+        uses: aws-actions/amazon-ecr-login@v2
       - name: Build, tag, and push image to Amazon ECR
         id: build-image
         env:
@@ -39,6 +32,39 @@ jobs:
           # Build a docker container and
           # push it to ECR so that it can
           # be deployed to ECS.
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          docker build -t $ECR_REGISTRY/ecr-project9047:github.sha -f Dockerfile.yml .
+          docker push $ECR_REGISTRY/ecr-project9047:github.sha
+          echo "image=$ECR_REGISTRY/ecr-project9047:github.sha" >> $GITHUB_OUTPUT
+         # Step to create ECS cluster
+      - name: Create ECS Cluster
+        run: |
+          aws ecs create-cluster --cluster-name my-ecs-cluster
+     # Step to register task definition
+      - name: Register Task Definition
+        run: |
+          aws ecs register-task-definition \
+            --family nginx-task \
+            --container-definitions '[{"name":"my-container","image":"881738188630.dkr.ecr.ap-south-1.amazonaws.com/ecr-project9047","portMappings":[{"containerPort":80}],"memoryReservation":128}]'
+     # Step to create ECS service
+      - name: Create or Update ECS Service with Retry
+        run: |
+          retries=3
+          while [ $retries -gt 0 ]; do
+            aws ecs create-service \
+              --cluster my-ecs-cluster \
+              --service-name nginx-service \
+              --task-definition nginx-task \
+              --desired-count 1 \
+              --launch-type EC2 \
+              --region ${{ secrets.AWS_REGION }} && break
+            retries=$((retries-1))
+            sleep 10  # Wait before retrying
+          done
+     # Step to wait for service to stabilize
+      - name: Wait for Service Stabilize
+        run: |
+          aws ecs wait services-stable \
+            --cluster my-ecs-cluster \
+            --services nginx-service \
+            --region ${{ secrets.AWS_REGION }} \
+            --waiter-timeout 900  # Increase timeout to 900 seconds (15 minutes)
