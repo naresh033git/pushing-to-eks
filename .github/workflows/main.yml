@@ -60,13 +60,6 @@ jobs:
             retries=$((retries-1))
             sleep 10  # Wait before retrying
           done
-     # Step to wait for service to stabilize
-      - name: Wait for Service Stabilize
-        run: |
-          aws ecs wait services-stable \
-            --cluster my-ecs-cluster \
-            --services nginx-service \
-            --region ${{ secrets.AWS_REGION }} \
-            --waiter-timeout 900  # Increase timeout to 900 seconds (15 minutes)
+    
 
 
